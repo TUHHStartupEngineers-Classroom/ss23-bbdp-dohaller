@@ -1,0 +1,16 @@
+\contentsline {section}{RMarkdown}{1}{section*.2}%
+\contentsline {subsection}{What can RMarkdown be used for?}{1}{section*.3}%
+\contentsline {subsection}{Key Resources}{1}{section*.4}%
+\contentsline {section}{How Rmarkdown Works}{1}{section*.5}%
+\contentsline {section}{Header 1}{1}{section*.6}%
+\contentsline {subsection}{Header 2}{1}{section*.7}%
+\contentsline {subsubsection}{Header 3}{1}{section*.8}%
+\contentsline {section}{Working with Text}{1}{section*.9}%
+\contentsline {section}{Tabset}{2}{section*.10}%
+\contentsline {subsection}{Tab 1}{2}{section*.11}%
+\contentsline {subsection}{Tab 2}{2}{section*.12}%
+\contentsline {section}{Images}{2}{section*.13}%
+\contentsline {section}{Code}{2}{section*.14}%
+\contentsline {section}{Plots}{3}{section*.15}%
+\contentsline {section}{Tables}{4}{section*.16}%
+\contentsline {section}{Footnotes}{6}{section*.17}%
