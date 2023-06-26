@@ -1,0 +1,143 @@
+---
+title: "Sales Dashboard"
+output: 
+  flexdashboard::flex_dashboard:
+    orientation: columns
+    vertical_layout: fill
+  runtime: shiny
+---
+
+```{r setup, include=FALSE}
+
+# LIBRARIES ----
+library(shiny)
+library(shinyWidgets)
+
+library(plotly)
+library(tidyverse)
+
+library(rvest)
+library(glue)
+library(dplyr)
+library(zoo)
+
+source(file = "../00_scripts/stock_analysis_functions.R")
+```
+
+
+```{r}
+# SERVER ----
+server <- function(input, output, session) {
+  stock_list_tbl <- eventReactive(input$index_selection,{
+    get_stock_list(input$index_selection)
+  })
+  
+  stock_symbol <- eventReactive(input$analyze, {
+    input$stock_selection
+  }, ignoreNULL = FALSE)
+  
+  stock_data_tbl <- reactive({
+    stock_symbol() %>%
+      get_symbol_from_user_input() %>% 
+      get_stock_data(from = input$daterange[1], 
+                       to   = input$daterange[2],
+                       mavg_short = input$short_mvavg,
+                       mavg_long  = input$long_mvavg)
+  })
+  
+  #print(stock_data_tbl())
+  output$plot_header <- renderText({stock_symbol()})
+  
+  output$plotly_plot <- renderPlotly({
+      stock_data_tbl() %>%
+      plot_stock_data()
+  })
+  
+  output$stock_data <- renderPrint({stock_data_tbl()})
+  
+  output$commentary <- renderText({
+    generate_commentary(data = stock_data_tbl(), user_input = stock_symbol())
+  })
+    
+  output$indices <- renderUI({
+    choices <- stock_list_tbl() %>% pluck("label")
+    pickerInput(inputId = "stock_selection", 
+                choices = choices,
+                multiple = F,
+                selected = "Optional",
+                options = list(
+                  'actions-box' = FALSE,
+                  'liveSearch' = TRUE,
+                  'size' = 10 
+                )
+    )
+  })
+}
+```
+
+```{r}
+# UI ----
+  # Define UI
+    ui <- fluidPage(title = "Stock Analyzer",
+    # 1.0 HEADER ----
+    div(
+        h1("Stock Analyzer"),
+        p("This is my second shiny project")
+    ),
+    # 2.0 APPLICATION UI -----
+    div(
+      column(
+        width = 4,
+        wellPanel(
+        div(h4("Stock Index")),
+        pickerInput(inputId = "index_selection", 
+                    choices = c("sp500", "dax","dow", "nasdaq"),
+                    multiple = F,
+                    selected = "Optional",
+                    options = list(
+                      'actions-box' = FALSE,
+                      'liveSearch' = TRUE,
+                      'size' = 10 
+                      )
+            ),
+        # Add content here 
+        div(h4("Stocks")),
+        uiOutput("indices"),
+        dateRangeInput("daterange", "Date range:",
+                 start = Sys.Date()-100,
+                 end = Sys.Date()),
+        actionButton("analyze", "Analyze", icon = icon("download")),
+        hr(),
+        sliderInput("short_mvavg", "Short Moving Average:",
+                  min = 5, max = 40,
+                  value = 20, step = 1),
+        sliderInput("long_mvavg", "Long Moving Average:",
+                  min = 50, max = 120,
+                  value = 50, step = 1),
+        
+        ),
+        
+      ), 
+      column(
+        width = 8,
+        div(
+          div(h4(textOutput(outputId = "plot_header"))),
+          div(plotlyOutput(outputId = "plotly_plot"))
+        )
+      )
+    ),
+    div(
+      width = 12,
+      div(textOutput(outputId = "commentary"))
+    )
+  )
+
+  
+```
+
+
+
+```{r}
+# RUN APP ----
+shinyApp(ui = ui, server = server)
+```

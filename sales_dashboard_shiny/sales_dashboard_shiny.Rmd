@@ -1,0 +1,343 @@
+---
+title: "Sales Dashboard"
+output: 
+  flexdashboard::flex_dashboard:
+    orientation: columns
+    vertical_layout: fill
+  runtime: shiny
+---
+
+```{r setup, include=FALSE}
+library(flexdashboard)
+library(shinyWidgets)
+# Core
+library(tidyverse)
+library(lubridate)
+
+# Interactive Visualizations
+library(plotly)
+
+# Spatial Data
+library(raster)
+library(sf)
+
+# Currency formatting
+format_to_euro <- function(x, suffix = " €") {
+  
+  scales::dollar(x,
+                 suffix       = suffix,
+                 prefix       = "",
+                 big.mark     = ".",
+                 decimal.mark = ",")
+}
+euro_format <- function(scale        = 1,
+                        prefix       = "",
+                        suffix       = " €",
+                        big.mark     = ".",
+                        decimal.mark = ",") {
+  
+  scales::dollar_format(suffix       = suffix,
+                        prefix       = prefix,
+                        big.mark     = big.mark,
+                        decimal.mark = decimal.mark,
+                        scale        = scale)
+  
+}
+```
+
+```{r}
+# Bike data
+bikes_tbl      <- readRDS("../01_data/bikes_tbl.rds")
+bikeshops_tbl  <- readRDS("../01_data/bikeshops_tbl.rds")
+orderlines_tbl <- readRDS("../01_data/orderlines_tbl.rds")
+
+bike_orderlines_tbl <- orderlines_tbl %>%
+    left_join(bikes_tbl,     by = c("product_id" = "bike_id")) %>%
+    left_join(bikeshops_tbl, by = c("customer_id" = "bikeshop_id")) %>%
+    mutate(total_price = price_euro * quantity) 
+
+# German spatial data
+germany_sp <- getData('GADM', country='DE', level=1) 
+# Convert SpatialPolygonsDataFrame to an sf dataframe
+germany_sf <- st_as_sf(germany_sp) %>% 
+                  # Add english names
+                  mutate(VARNAME_1 = ifelse(is.na(VARNAME_1), NAME_1, VARNAME_1)) 
+```
+
+```{r}
+ui <- fluidPage(
+  titlePanel("Sales Dashboard"),
+  sidebarPanel(
+    width = 2,
+    pickerInput(
+  inputId = "cat_1", 
+  label = "Category 1:", 
+  choices = unique(bike_orderlines_tbl$category_1), 
+  options = pickerOptions(
+    actionsBox = TRUE, 
+    size = 10,
+    selectedTextFormat = "count > 3"
+  ), 
+  multiple = FALSE
+),
+
+pickerInput(
+  inputId = "cat_2", 
+  label = "Category 2:", 
+  choices = unique(bike_orderlines_tbl$category_2), 
+  options = pickerOptions(
+    actionsBox = TRUE, 
+    size = 10,
+    selectedTextFormat = "count > 3"
+  ), 
+  multiple = FALSE
+),
+dateRangeInput("date_range", "Select Date Range:",
+               start = min(bike_orderlines_tbl$order_date), 
+               end = max(bike_orderlines_tbl$order_date)
+               )
+  ),
+mainPanel(
+  fluidRow(
+    column(width = 6,
+      plotlyOutput("mapplot")
+    ),
+    column(width = 6,
+      tabsetPanel(
+        tabPanel(
+          "D",
+          plotlyOutput("dayplot")
+        ),
+        tabPanel(
+          "W",
+          plotlyOutput("weekplot")
+          ),
+        tabPanel(
+          "M",
+          plotlyOutput("monthplot")
+        ),
+        tabPanel(
+          "Q",
+          plotlyOutput("quarterplot")
+        ),
+        tabPanel(
+          "Y",
+          plotlyOutput("yearplot")
+        )
+        
+      )
+    )
+  )
+)
+)
+
+
+server <- function(input, output){
+  
+  output$mapplot <- renderPlotly({
+    geo_plot_tbl <- bike_orderlines_tbl %>% 
+                  filter(category_1 == input$cat_1 & category_2 == input$cat_2 & order_date >= input$date_range[1] & order_date <= input$date_range[2]) %>% 
+                  group_by(state) %>%
+                  summarise(total_revenue = sum(total_price)) %>%
+                  ungroup() %>%
+                  right_join(germany_sf, by = c("state" = "VARNAME_1")) %>% 
+                  mutate(total_revenue = ifelse(is.na(total_revenue), 0, total_revenue)) %>% 
+                  mutate(label_text = str_glue("State: {state}
+                                         Revenue: {format_to_euro(total_revenue)}")) %>% 
+                  # Convert back to an sf object, that can be plotted
+                  st_as_sf()
+    plot_ly(geo_plot_tbl, 
+        split      = ~NAME_1, 
+        color      = ~total_revenue,
+        colors     = "Blues",
+        stroke     = I("black"),
+        hoverinfo  = 'text', 
+        text       = ~label_text, 
+        hoveron    = "fills", 
+        showlegend = FALSE) 
+  })
+  
+  output$dayplot <- renderPlotly({
+      daily_plot_tbl <- bike_orderlines_tbl %>%
+    filter(category_1 == input$cat_1 & category_2 == input$cat_2 & order_date >= input$date_range[1] & order_date <= input$date_range[2]) %>% 
+    mutate(date_rounded = floor_date(order_date, unit = "day")) %>%
+    
+    group_by(date_rounded) %>%
+    summarise(total_sales = sum(total_price)) %>%
+    ungroup() %>%
+    
+    mutate(label_text = str_glue("Sales: {format_to_euro(total_sales)}
+                                   Date: {date_rounded %>% format('%B %Y')}"))
+  
+  g0 <- daily_plot_tbl %>%
+    ggplot(aes(x = date_rounded, y = total_sales)) +
+    
+    # Geoms
+    geom_point() +
+    geom_smooth(method = "loess", span = 0.2) +
+    
+    # Formatting
+    
+    # Convert scale to euro format
+    scale_y_continuous(labels = euro_format()) +
+    
+    # Make sure 0 will always be shown (even if the data is far away)
+    expand_limits(y = 0) +
+    
+    labs(
+      title = "Total Sales",
+      y = "Revenue (EUR)",
+      x = ""
+    )
+  
+  ggplotly(g0)
+  })
+  
+  output$weekplot <- renderPlotly({
+      weekly_plot_tbl <- bike_orderlines_tbl %>%
+    filter(category_1 == input$cat_1 & category_2 == input$cat_2 & order_date >= input$date_range[1] & order_date <= input$date_range[2]) %>% 
+    mutate(date_rounded = floor_date(order_date, unit = "week")) %>%
+    
+    group_by(date_rounded) %>%
+    summarise(total_sales = sum(total_price)) %>%
+    ungroup() %>%
+    
+    mutate(label_text = str_glue("Sales: {format_to_euro(total_sales)}
+                                   Date: {date_rounded %>% format('%B %Y')}"))
+  
+  g1 <- weekly_plot_tbl %>%
+    ggplot(aes(x = date_rounded, y = total_sales)) +
+    
+    # Geoms
+    geom_point() +
+    geom_smooth(method = "loess", span = 0.2) +
+    
+    # Formatting
+    
+    # Convert scale to euro format
+    scale_y_continuous(labels = euro_format()) +
+    
+    # Make sure 0 will always be shown (even if the data is far away)
+    expand_limits(y = 0) +
+    
+    labs(
+      title = "Total Sales",
+      y = "Revenue (EUR)",
+      x = ""
+    )
+  
+  ggplotly(g1)
+  })
+  
+  output$monthplot <- renderPlotly({
+      monthly_plot_tbl <- bike_orderlines_tbl %>%
+    filter(category_1 == input$cat_1 & category_2 == input$cat_2 & order_date >= input$date_range[1] & order_date <= input$date_range[2]) %>% 
+    mutate(date_rounded = floor_date(order_date, unit = "month")) %>%
+    
+    group_by(date_rounded) %>%
+    summarise(total_sales = sum(total_price)) %>%
+    ungroup() %>%
+    
+    mutate(label_text = str_glue("Sales: {format_to_euro(total_sales)}
+                                   Date: {date_rounded %>% format('%B %Y')}"))
+  
+  g2 <- monthly_plot_tbl %>%
+    ggplot(aes(x = date_rounded, y = total_sales)) +
+    
+    # Geoms
+    geom_point() +
+    geom_smooth(method = "loess", span = 0.2) +
+    
+    # Formatting
+    
+    # Convert scale to euro format
+    scale_y_continuous(labels = euro_format()) +
+    
+    # Make sure 0 will always be shown (even if the data is far away)
+    expand_limits(y = 0) +
+    
+    labs(
+      title = "Total Sales",
+      y = "Revenue (EUR)",
+      x = ""
+    )
+  
+  ggplotly(g2)
+  })
+  
+  output$quarterplot <- renderPlotly({
+      quarter_plot_tbl <- bike_orderlines_tbl %>%
+    filter(category_1 == input$cat_1 & category_2 == input$cat_2 & order_date >= input$date_range[1] & order_date <= input$date_range[2]) %>% 
+    mutate(date_rounded = floor_date(order_date, unit = "quarter")) %>%
+    
+    group_by(date_rounded) %>%
+    summarise(total_sales = sum(total_price)) %>%
+    ungroup() %>%
+    
+    mutate(label_text = str_glue("Sales: {format_to_euro(total_sales)}
+                                   Date: {date_rounded %>% format('%B %Y')}"))
+  
+  g3 <- quarter_plot_tbl %>%
+    ggplot(aes(x = date_rounded, y = total_sales)) +
+    
+    # Geoms
+    geom_point() +
+    geom_smooth(method = "loess", span = 0.2) +
+    
+    # Formatting
+    
+    # Convert scale to euro format
+    scale_y_continuous(labels = euro_format()) +
+    
+    # Make sure 0 will always be shown (even if the data is far away)
+    expand_limits(y = 0) +
+    
+    labs(
+      title = "Total Sales",
+      y = "Revenue (EUR)",
+      x = ""
+    )
+  
+  ggplotly(g3)
+  })
+  
+  output$yearplot <- renderPlotly({
+      yearly_plot_tbl <- bike_orderlines_tbl %>%
+    filter(category_1 == input$cat_1 & category_2 == input$cat_2 & order_date >= input$date_range[1] & order_date <= input$date_range[2]) %>% 
+    mutate(date_rounded = floor_date(order_date, unit = "year")) %>%
+    
+    group_by(date_rounded) %>%
+    summarise(total_sales = sum(total_price)) %>%
+    ungroup() %>%
+    
+    mutate(label_text = str_glue("Sales: {format_to_euro(total_sales)}
+                                   Date: {date_rounded %>% format('%B %Y')}"))
+  
+  g4 <- yearly_plot_tbl %>%
+    ggplot(aes(x = date_rounded, y = total_sales)) +
+    
+    # Geoms
+    geom_point() +
+    geom_smooth(method = "loess", span = 0.2) +
+    
+    # Formatting
+    
+    # Convert scale to euro format
+    scale_y_continuous(labels = euro_format()) +
+    
+    # Make sure 0 will always be shown (even if the data is far away)
+    expand_limits(y = 0) +
+    
+    labs(
+      title = "Total Sales",
+      y = "Revenue (EUR)",
+      x = ""
+    )
+  
+  ggplotly(g4)
+  })
+}
+
+shinyApp(ui, server)
+
+```

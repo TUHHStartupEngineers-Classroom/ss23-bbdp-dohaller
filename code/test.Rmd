@@ -1,0 +1,85 @@
+---
+title: "Sales Dashboard"
+output: 
+  flexdashboard::flex_dashboard:
+    orientation: columns
+    vertical_layout: fill
+  runtime: shiny
+---
+
+```{r}
+
+# Business Analytics with Data Science and Machine Learning ----
+# Building Business Data Products ----
+# STOCK ANALYZER APP - LAYOUT -----
+
+# APPLICATION DESCRIPTION ----
+# - Create a basic layout in shiny showing the stock dropdown, interactive plot and commentary
+
+
+# LIBRARIES ----
+library(shiny)
+library(shinyWidgets)
+
+library(plotly)
+library(tidyverse)
+
+library(rvest)
+library(glue)
+
+source(file = "../00_scripts/stock_analysis_functions.R")
+
+# Define stock options
+stock_options <- c("AAPL", "GOOGL", "MSFT", "AMZN")
+
+# Define UI
+ui <- fluidPage(
+    ui <- fluidPage(title = "Stock Analyzer",
+    # 1.0 HEADER ----
+    div(
+        h1("Stock Analyzer"),
+        p("This is my second shiny project")
+    ),
+    # 2.0 APPLICATION UI -----
+    div(
+      column(
+        width = 4,
+        wellPanel(
+        
+        # Add content here 
+        pickerInput(inputId = "stock_selection", 
+                    choices = stock_options,
+                    multiple = F,
+                    selected = "Optional",
+                    options = list(
+                      'actions-box' = FALSE,
+                      'liveSearch' = TRUE,
+                      'size' = 10 
+                      )
+            )
+        
+        ),
+        actionButton("analyze", "Analyze", icon = icon("download"))
+      ), 
+      column(
+        width = 8,
+        div(
+          div(h4(textOutput("selected_stock"))),
+        )
+      )
+    )
+  )
+)
+
+# Define server logic
+server <- function(input, output) {
+  output$selected_stock <- renderText({
+    req(input$analyze)  # Only update when the "Analyze" button is clicked
+    input$stock_selection
+  })
+}
+
+# Run the app
+shinyApp(ui = ui, server = server)
+
+```
